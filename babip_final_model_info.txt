@@ -1,0 +1,12 @@
+======================================================================
+FINAL BABIP MODEL SPECIFICATION
+======================================================================
+
+Model Type: Linear Mixed Effects (Random Intercepts by Player)
+Features: 7
+  Base: clr_ld, clr_gb, iffb, hard, pull, oppo, sprint_speed
+
+Performance:
+  Test R²:  0.3722
+  Test MAE: 0.0256
+  Coverage: 54.5%
