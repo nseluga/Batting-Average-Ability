@@ -1,0 +1,12 @@
+# Core data + modeling stack for the Batting Average Ability (BAA) project.
+# Install with:  pip install -r requirements.txt
+
+pybaseball        # download MLB batting statistics
+pandas            # data wrangling
+numpy             # numerical operations
+scikit-learn      # linear regression, random forest, scaling, train/test split
+statsmodels       # mixed-effects (MixedLM) models
+joblib            # save/load trained models
+matplotlib        # static plots
+seaborn           # static plots
+plotly            # interactive scatter plots (BAA validation)
