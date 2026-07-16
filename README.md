@@ -1,54 +1,68 @@
 # Batting Average Ability (BAA)
 
-**Separating a hitter's batting-average *skill* from *luck* using mixed-effects
-modeling.**
+Batting average mixes two things that matter to a front office: how well a
+hitter actually hits the ball, and how many of those balls happen to find
+grass. This project separates the two. It builds a metric called Batting
+Average Ability (BAA) that estimates the skill portion of a hitter's batting
+average from their plate discipline and quality of contact, and reports the
+leftover as a luck component (actual batting average minus predicted).
 
-Batting average (AVG) mixes two things: how well a hitter actually hits the ball
-and how many of those balls happen to find grass. This project builds **BAA
-(Batting Average Ability)** — a season-normalized index (league average = 100,
-one standard deviation = 10 points, in the spirit of `wRC+` / `OPS+`) that
-estimates the skill component of AVG from a player's peripheral stats (plate
-discipline + quality of contact), and reports the leftover as a per-season
-**luck component** (actual BA − predicted BA).
+Everything here models a player-season's own-season batting average and BABIP
+from that same season's peripheral stats. It is a skill-isolation project, not a
+forecasting one. There is no next-season target and no projection claim
+anywhere in the repo. If forecasting is the goal, the natural next step is a
+year-over-year BAA stability test, which is not yet built.
 
-> **Scope — read this first.** This is a **skill-isolation / descriptive**
-> project, *not* a forecasting one. Every model predicts a player-season's
-> *same-season* AVG or BABIP from that same season's peripherals. There is no
-> next-season target and no forecasting claim anywhere in the repo.
+## What we did
 
----
+We pulled ten seasons of FanGraphs batting stats (2015 to 2024, minimum 100
+plate appearances), cleaned them into 4,374 player-seasons across 1,173
+players, and split them 80/20 into 3,499 training and 875 test rows.
 
-## Headline results
+We then built models in two passes. The first pass predicts BABIP (batting
+average on balls in play) from batted-ball composition and contact quality. The
+second pass predicts batting average using the predicted BABIP from the first
+pass plus plate-discipline stats. Both passes use mixed-effects models with a
+random intercept per player, which lets the model separate stable player-level
+skill from season-to-season noise. Finally, we combined the fitted coefficients
+into the BAA index and validated it against actual batting average.
 
-All numbers are from the committed notebook outputs and saved artifacts
-(`data/predictions/`, `models/`). Corpus: **4,374 player-seasons, 1,173 unique
-players, 2015–2024** (FanGraphs season-level stats, min 100 PA).
+## What we found
+
+About a quarter of batting-average variation is stable, player-level skill. The
+player random intercept accounts for 24.7% of AVG variation and 18.4% of BABIP
+variation (the intraclass correlation, or ICC). The batting-average model
+explains 45.7% of test-set variance from peripherals alone, with a test mean
+absolute error of 0.0215 and essentially no overfitting (train-test R-squared
+gap of 0.0015).
+
+The strongest single driver of BABIP after batted-ball mix is sprint speed. On
+standardized coefficients it ranks second (+0.0087, p < 0.001), behind only the
+line-drive-versus-flyball share. This matches baseball intuition: faster
+hitters beat out grounders and leg out infield hits.
+
+The BAA index passes a face-validity check. Indexed so that league average is
+100 and one standard deviation is 10 points within each season, the top score
+is Luis Arraez in 2023 at 133.2 (.354 batting average) and the bottom is Joey
+Gallo in 2023 at 61.2 (.177).
 
 | Model | Target | Test R² | Test MAE | Notes |
-|---|---|---|---|---|
-| Mixed-effects (player random intercepts) | **AVG** | **0.457** | **0.0215** | uses predicted BABIP + plate discipline; train/test R² gap +0.0015 (no overfitting) |
-| Mixed-effects + CLR + PA weighting | BABIP | 0.35–0.37¹ | ~0.026 | ICC 0.184 |
-| OLS linear | BABIP | 0.402 | 0.0253 | baseline |
-| Random forest (no BABIP) | AVG | — (RMSE 0.0312) | — | rejected: Test R² 0.293 vs linear 0.372 |
-| OLS linear (BABIP as feature) | AVG | 0.983 | 0.0035 | **identity/leakage — not a skill result** (AVG is an accounting identity of BABIP, K%, HR/FB) |
+|-------|--------|---------|----------|-------|
+| Linear regression | AVG | 0.983 | 0.0035 | Uses same-season BABIP, so it is close to an accounting identity. Not a skill result. |
+| Linear regression | BABIP | 0.402 | 0.0253 | Baseline. |
+| Random forest | AVG | n/a (RMSE 0.0312) | | BABIP excluded as a feature. |
+| Mixed effects (CLR features) | BABIP | 0.347 to 0.372 | 0.026 | ICC 0.184. Range explained in Caveats. |
+| Mixed effects (predicted BABIP) | AVG | 0.457 | 0.0215 | ICC 0.247. This is the model behind BAA. |
 
-**Skill share of variance (the headline finding):** the player random intercept
-explains **ICC ≈ 24.7%** of AVG variance and **18.4%** of BABIP variance — i.e.
-roughly a quarter of batting average is stable, player-level skill.
+We tried more complex models for BABIP and rejected them on evidence. A random
+forest scored a test R-squared of 0.293 against 0.372 for the linear baseline, a
+21% drop, with an overfit gap of 0.166 versus 0.027. Interactions and an
+ensemble were also worse. That is what justifies keeping the interpretable
+mixed-effects model.
 
-**Face validity** (top / bottom BAA seasons): Luis Arraez 2023 = **133.2**
-(BA .354); Joey Gallo 2023 = **61.2** (BA .177).
-
-**Concrete baseball insight:** *sprint speed* is the **#2 driver of BABIP**
-(standardized coef +0.0087, p<0.001) — fast hitters beat out grounders and
-infield hits.
-
-¹ The BABIP mixed model's Test R² is recorded as **0.347** in the current
-notebook run but **0.372** in the saved `models/babip_final_model_info.txt` /
-`models/babip_model_comparison.csv`. This inconsistency is unresolved — see
-[Caveats](#caveats--known-limitations).
-
----
+Validating BAA within each season by fitting actual batting average against
+BAA, the R-squared ranges from 0.409 in 2023 to 0.527 in 2021, and is 0.425 in
+2024 (MAE 0.0179).
 
 ## Repository layout
 
@@ -57,123 +71,107 @@ Batting-Average-Ability/
 ├── README.md
 ├── requirements.txt
 ├── notebooks/
-│   ├── batting_average_model.ipynb   # main pipeline: clean → split → models → BAA → validation
-│   └── BA_dict.ipynb                 # warm-up: builds a {player name -> BA} dictionary
+│   ├── batting_average_model.ipynb   Main pipeline: clean, split, model, index, validate
+│   └── BA_dict.ipynb                 Warm-up that builds a {player name: batting average} dictionary
 ├── data/
-│   ├── raw/          # source data as downloaded
-│   │   └── 2023-2025_hitting_stats.csv     # Baseball Savant, 214 players (BA_dict.ipynb only)
-│   ├── processed/    # cleaned data + train/test splits + standardized feature matrices
-│   │   ├── cleaned_batting_data.csv         # master dataset (FanGraphs 2015-2024, 4,374 rows)
-│   │   ├── X_train.csv / X_test.csv         # 80/20 random split (random_state=42)
-│   │   ├── Y_train.csv / Y_test.csv         # AVG targets
-│   │   ├── train_avg_features.csv / test_avg_features.csv
-│   │   └── train_babip_clr_features.csv / test_babip_clr_features.csv
-│   └── predictions/  # model outputs and the BAA deliverables
-│       ├── pred_avg_train.csv / pred_avg_test.csv       # actual vs predicted AVG + residuals
-│       ├── pred_babip_train.csv / pred_babip_test.csv   # actual vs predicted BABIP
-│       ├── baa_player_table.csv     # 1,173 career rows: RAWBA vs shrunk BAA, PA, seasons
-│       ├── baa_season_table.csv     # per player-season: avg_actual, avg_pred, luck_component
-│       └── baa_coefficients_output*.csv
-└── models/           # trained model artifacts + coefficients + model specs
-    ├── linear_regression_avg.pkl / linear_regression_babip.pkl
-    ├── rf_avg_model.pkl
-    ├── linear_regression_*_coefficients.csv
-    ├── babip_final_model_info.txt          # final BABIP model spec + metrics
-    └── babip_model_comparison.csv          # linear vs interactions vs RF vs ensemble
+│   ├── raw/
+│   │   └── 2023-2025_hitting_stats.csv     Baseball Savant, 214 players, used only by BA_dict.ipynb
+│   ├── processed/
+│   │   ├── cleaned_batting_data.csv         Master dataset, FanGraphs 2015 to 2024, 4,374 rows
+│   │   ├── X_train.csv, X_test.csv          80/20 split, random_state 42
+│   │   ├── Y_train.csv, Y_test.csv          Batting-average targets
+│   │   ├── train_avg_features.csv, test_avg_features.csv
+│   │   └── train_babip_clr_features.csv, test_babip_clr_features.csv
+│   └── predictions/
+│       ├── pred_avg_train.csv, pred_avg_test.csv       Actual vs predicted AVG and residuals
+│       ├── pred_babip_train.csv, pred_babip_test.csv   Actual vs predicted BABIP
+│       ├── baa_coefficients_output_no_predbabip.csv    Full dataset with the 100-indexed BAA and player names
+│       ├── baa_season_table.csv     Per player-season skill estimate and luck component
+│       └── baa_player_table.csv     Career-level raw batting average vs shrunk BAA
+└── models/
+    ├── linear_regression_avg.pkl, linear_regression_babip.pkl, rf_avg_model.pkl
+    ├── linear_regression_coefficients.csv, linear_regression_babip_coefficients.csv
+    ├── babip_final_model_info.txt          Final BABIP model spec and metrics
+    └── babip_model_comparison.csv          Linear vs interactions vs random forest vs ensemble
 ```
 
-The two headline deliverables are **`data/predictions/baa_player_table.csv`**
-(career-level BAA per hitter) and **`data/predictions/baa_season_table.csv`**
-(per player-season BAA and its `luck_component`).
+The two forms of the metric live in different files. The 100-indexed BAA, with
+player names and the plate and contact component scores, is in
+`baa_coefficients_output_no_predbabip.csv`. The batting-average-scale skill
+estimate and its per-season luck component are in `baa_season_table.csv`, and
+career-level shrinkage is in `baa_player_table.csv`.
 
----
-
-## Getting started
+## Setup and running
 
 ```bash
-# 1. Install dependencies (Python 3.9+ recommended)
 pip install -r requirements.txt
-
-# 2. Launch Jupyter and open the main notebook
 jupyter notebook notebooks/batting_average_model.ipynb
 ```
 
-All file paths in the notebooks are **relative to the `notebooks/` directory**
-(e.g. `../data/processed/X_train.csv`), so run the notebooks from that folder
-(Jupyter does this automatically when you open them there).
+File paths in the notebooks are relative to the `notebooks/` directory (for
+example `../data/processed/X_train.csv`), so run them from that folder. Jupyter
+does this automatically when you open a notebook there.
 
-The committed CSVs and `.pkl` files let you inspect every result **without
-re-running anything**. To regenerate from scratch, run
-`batting_average_model.ipynb` top to bottom — the first cell re-downloads
-FanGraphs data via `pybaseball`, so an internet connection is required and the
-download takes a few minutes.
+The committed CSV and model files let you inspect every result without running
+anything. To regenerate from scratch, run `batting_average_model.ipynb` top to
+bottom. Its first cell re-downloads FanGraphs data through `pybaseball`, so an
+internet connection is required and the download takes a few minutes.
 
----
+## Method in order
 
-## Method, in order
+1. Clean. Pull FanGraphs 2015 to 2024 batting stats, drop columns that are more
+   than half missing, keep one record per player-season (the one with the most
+   plate appearances), one-hot encode teams, remove outliers with a 3x IQR
+   rule, and median-fill the rest. Output: `cleaned_batting_data.csv`.
+2. Split. A random 80/20 split with a fixed seed. Seasons are mixed together.
+3. Baselines. Ordinary least squares for AVG and BABIP, plus a random forest
+   for AVG. The random forest is rejected on the evidence in
+   `babip_model_comparison.csv`.
+4. BABIP model. A mixed-effects model with a random intercept per player. The
+   batted-ball shares (line drive, ground ball, fly ball) are centered log-ratio
+   transformed because they sum to one and cannot be treated as independent.
+   Infield-fly rate is re-expressed on the balls-in-play scale, and rows are
+   weighted by plate appearances through replication so full seasons count more.
+5. AVG model. A second mixed-effects model that uses the predicted BABIP from
+   step 4 plus plate-discipline stats such as strikeout rate, walk rate, chase
+   and zone swing and contact rates, and swinging-strike rate. This model
+   produces the 0.457 test R-squared and is the basis for BAA.
+6. BAA index. Standardized coefficients are combined into a plate score and a
+   contact score, summed, and then indexed to mean 100 and standard deviation 10
+   within each season so that eras are comparable. Seasons below 200 plate
+   appearances are excluded from the index.
+7. Validation. Fit actual batting average against BAA within each season from
+   2019 to 2024, and plot BAA against actual batting average colored by season.
 
-The pipeline in `batting_average_model.ipynb` runs in these stages:
+`BA_dict.ipynb` is a small standalone warm-up that builds a lookup from player
+name to batting average. It is not part of the modeling pipeline.
 
-1. **Clean** (`cleaned_batting_data.csv`) — pull FanGraphs 2015–2024 batting
-   stats via `pybaseball` (min 100 PA), drop >50%-missing columns, de-duplicate
-   player-seasons (keep the max-PA record), one-hot encode teams, remove 3×IQR
-   outliers, median-fill the rest.
-2. **Split** — plain random 80/20 `train_test_split(random_state=42)`
-   (3,499 train / 875 test; seasons mixed).
-3. **Baselines** — OLS linear regression for AVG and for BABIP, plus a random
-   forest for AVG (BABIP excluded). RF is **rejected on evidence**
-   (`babip_model_comparison.csv`: RF Test R² 0.293 vs linear 0.372, overfit gap
-   0.166 vs 0.027), which is what justifies the interpretable linear/mixed
-   models.
-4. **BABIP mixed-effects model** — a `statsmodels` `MixedLM` with random
-   intercepts by player. Batted-ball composition (LD/GB/FB) is
-   **CLR-transformed** (centered log-ratio) because the shares sum to one and
-   can't be treated as independent; infield-fly rate is re-expressed on the
-   balls-in-play scale; rows are **PA-weighted via replication** so high-PA
-   seasons carry more weight.
-5. **AVG mixed-effects model** — a second `MixedLM` that uses the *predicted*
-   BABIP from step 4 plus plate-discipline features (K%, BB%, chase/zone swing &
-   contact, SwStr%). This is the model behind BAA (Test R² 0.457).
-6. **BAA index** — standardized coefficients are combined into a `plate_score`
-   and a `contact_score`, summed to `baa_raw`, then indexed to **mean 100 / SD
-   10 within each season** (min 200 PA) so eras are comparable.
-7. **Validation** — within-season fit of `BA ~ BAA` for 2019–2024 (R² ranges
-   0.409 in 2023 to 0.527 in 2021; 2024 R² 0.425), plus an interactive Plotly
-   scatter of BAA vs actual BA colored by season.
+## Caveats
 
-`BA_dict.ipynb` is a small standalone warm-up (builds a `{player -> BA}`
-dictionary from `data/raw/2023-2025_hitting_stats.csv`); it is **not** part of
-the modeling pipeline.
+The models describe the same season, they do not forecast the next one.
+Predicting a season's batting average from its own peripherals decomposes skill
+and luck, it does not project future performance.
 
----
+The 80/20 split mixes seasons and there is no cross-validation, so the reported
+R-squared is not an out-of-time estimate. This is acceptable for a descriptive
+metric but worth knowing.
 
-## Caveats & known limitations
+The linear AVG R-squared of 0.983 is not a skill result. It includes same-season
+BABIP as a feature, and batting average is largely an accounting identity of
+BABIP, strikeout rate, and home-run-per-flyball rate. The honest headline number
+is the mixed model's 0.457.
 
-Honest framing for anyone building on this:
+The BABIP model's test R-squared is 0.347 in the current notebook run but 0.372
+in the saved `babip_final_model_info.txt` and `babip_model_comparison.csv`. The
+two runs were fit slightly differently and the gap has not been reconciled. Do
+not quote one figure without knowing which run produced it.
 
-- **Same-season, not predictive.** Nothing here forecasts future performance.
-  Predicting a season's AVG from that season's own peripherals is a
-  skill-*decomposition*, not a projection. A year-over-year BAA stability test
-  would be the natural next step to make a forecasting claim.
-- **Random split, not temporal.** The 80/20 split mixes seasons, and there is no
-  cross-validation. For a descriptive metric this is defensible, but it means
-  the reported R² is not an out-of-time estimate.
-- **The linear AVG R² of 0.983 is not a skill result.** It includes same-season
-  BABIP as a feature, and AVG is largely an accounting identity of BABIP, K%,
-  and HR/FB. Treat that row as a sanity check, not a finding. The honest AVG
-  number is the mixed model's **0.457**.
-- **BABIP metric discrepancy.** The saved artifacts report Test R² 0.372 while
-  the current notebook run reports 0.347. The source of the gap has not been
-  reconciled; don't quote a single figure without checking which run produced
-  it.
-- **BABIP prediction intervals are poorly calibrated** — coverage is 54.5%
-  (`babip_final_model_info.txt`), well below nominal.
-
----
+The BABIP prediction intervals are poorly calibrated. Coverage is 54.5% against
+a nominal target, so the intervals are too narrow.
 
 ## Data source
 
-Season-level batting statistics are pulled from **FanGraphs** via the
-[`pybaseball`](https://github.com/jldbc/pybaseball) library
-(`batting_stats(year, qual=100)`) for 2015–2024. The separate Baseball Savant
-export in `data/raw/` is used only by the warm-up notebook.
+Season-level batting statistics come from FanGraphs through the
+[`pybaseball`](https://github.com/jldbc/pybaseball) library, calling
+`batting_stats(year, qual=100)` for each year from 2015 to 2024. The Baseball
+Savant export in `data/raw/` is used only by the warm-up notebook.
